@@ -671,7 +671,9 @@ const createNodeFromYElement = (
           : { type: 'added' }
       }
     }
-    const node = schema.node(el.nodeName, attrs, children)
+    const marks = attrs.marks && attrs.marks.map(mark => schema.markFromJSON(mark))
+    delete attrs.marks
+    const node = schema.node(el.nodeName, attrs, children, marks)
     mapping.set(el, node)
     return node
   } catch (e) {
@@ -756,6 +758,9 @@ const createTypeFromElementNode = (node, mapping) => {
       type.setAttribute(key, val)
     }
   }
+  if (node.marks.length) {
+    type.setAttribute('marks', node.marks.map(mark => mark.toJSON()))
+  }
   type.insert(
     0,
     normalizePNodeContent(node).map((n) =>
@@ -792,6 +797,18 @@ const equalAttrs = (pattrs, yattrs) => {
       (isObject(l) && isObject(r) && equalAttrs(l, r))
   }
   return eq
+}
+
+/**
+ * Compares Prosemirror marks using their serialized `toJSON()` forms.
+ * https://github.com/ProseMirror/prosemirror-model/blob/master/src/mark.js
+ */
+const equalMarks = (pmarks, ymarks) => {
+  if (pmarks.length !== ymarks.length) return false
+  for (let i = 0; i < pmarks.length; i++) {
+    if (pmarks[i].type !== ymarks[i].type || !equalAttrs(pmarks[i].attrs, ymarks[i].attrs)) return false
+  }
+  return true
 }
 
 /**
@@ -838,6 +855,8 @@ const equalYTextPText = (ytext, ptexts) => {
 }
 
 /**
+ * Compares ytype with pnode (Prosemirror node) by looking at normalized content, attrs, marks, and children
+ *
  * @param {Y.XmlElement|Y.XmlText|Y.XmlHook} ytype
  * @param {any|Array<any>} pnode
  */
@@ -846,12 +865,18 @@ const equalYTypePNode = (ytype, pnode) => {
     ytype instanceof Y.XmlElement && !(pnode instanceof Array) &&
     matchNodeName(ytype, pnode)
   ) {
-    const normalizedContent = normalizePNodeContent(pnode)
-    return ytype._length === normalizedContent.length &&
-      equalAttrs(ytype.getAttributes(), pnode.attrs) &&
-      ytype.toArray().every((ychild, i) =>
-        equalYTypePNode(ychild, normalizedContent[i])
-      )
+      let normalizedContent = normalizePNodeContent(pnode)
+      if (normalizedContent.length !== ytype._length) return false
+      // Exclude `marks` attribute from comparison with `pnode.attrs` if it exists as attribute on ytype.
+      let yattrs = ytype.getAttributes()
+      let pattrs = pnode.attrs
+      delete yattrs.marks
+      if (!equalAttrs(yattrs, pattrs)) return false
+      // Serialize `pnode.marks` so it is in the same form as `marks` in ytype.
+      let ymarks = ytype.getAttribute('marks') || []
+      let pmarks = pnode.marks.map(mark => mark.toJSON())
+      if (!equalMarks(ymarks, pmarks)) return false
+      return ytype.toArray().every((ychild, i) => equalYTypePNode(ychild, normalizedContent[i]))
   }
   return ytype instanceof Y.XmlText && pnode instanceof Array &&
     equalYTextPText(ytype, pnode)
@@ -980,7 +1005,7 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
     throw new Error('node name mismatch!')
   }
   mapping.set(yDomFragment, pNode)
-  // update attributes
+  // update attributes and marks
   if (yDomFragment instanceof Y.XmlElement) {
     const yDomAttrs = yDomFragment.getAttributes()
     const pAttrs = pNode.attrs
@@ -998,6 +1023,9 @@ export const updateYFragment = (y, yDomFragment, pNode, mapping) => {
       if (pAttrs[key] === undefined) {
         yDomFragment.removeAttribute(key)
       }
+    }
+    if (pNode.marks.length) {
+      yDomFragment.setAttribute('marks', pNode.marks.map(mark => mark.toJSON()))
     }
   }
   // update children
