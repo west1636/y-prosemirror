@@ -202,7 +202,7 @@ export const relativePositionToAbsolutePosition = (y, documentType, relPos, mapp
  * @param {string} xmlFragment
  * @return {Y.Doc}
  */
-export function prosemirrorToYDoc (doc, xmlFragment = 'prosemirror') {
+export function prosemirrorToYDocCus (doc, xmlFragment = 'prosemirror') {
   console.log('---prosemirrorToDoc!!---')
   const ydoc = new Y.Doc()
   const type = /** @type {Y.XmlFragment} */ (ydoc.get(xmlFragment, Y.XmlFragment))
